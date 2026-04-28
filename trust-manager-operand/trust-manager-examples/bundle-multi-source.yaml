@@ -1,0 +1,33 @@
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: my-org-trust-bundle
+spec:
+  sources:
+    # OpenShift default CA certificates
+    - useDefaultCAs: true
+
+    # CA from a ConfigMap in the trust namespace
+    - configMap:
+        name: "my-org-ca"
+        key: "ca.crt"
+
+    # CA from a Secret in the trust namespace
+    - secret:
+        name: "internal-ca"
+        key: "tls.crt"
+
+    # Inline CA certificate
+    - inLine: |
+        -----BEGIN CERTIFICATE-----
+        MIIFazCCA1OgAwIBAgIUe...
+        -----END CERTIFICATE-----
+  target:
+    configMap:
+      key: "trust-bundle.pem"
+    # Also write to a Secret (requires secretTargets.policy: Custom)
+    secret:
+      key: "trust-bundle.pem"
+    namespaceSelector:
+      matchLabels:
+        trust-bundle-injection: enabled

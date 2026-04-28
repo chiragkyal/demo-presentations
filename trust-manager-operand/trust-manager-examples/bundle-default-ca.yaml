@@ -1,0 +1,14 @@
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: cluster-trust-bundle
+spec:
+  sources:
+    # Use the OpenShift default CA package
+    - useDefaultCAs: true
+  target:
+    configMap:
+      key: ca-certificates.crt
+    namespaceSelector:
+      matchLabels:
+        trust.cert-manager.io/inject: "true"

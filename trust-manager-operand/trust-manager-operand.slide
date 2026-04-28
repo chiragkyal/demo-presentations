@@ -1,0 +1,208 @@
+Distributing CA Certificates with trust-manager
+cert-manager Operator for Red Hat OpenShift
+
+Chirag Kyal
+Software Engineer
+
+
+* The Problem
+
+Every namespace in your cluster may need trusted CA certificates:
+
+- Internal PKI root CAs
+- Corporate proxy CA certificates
+- Partner or third-party CAs
+
+*Today's*approach:*
+
+- Manually copy ConfigMaps/Secrets to each namespace
+- Hope someone updates them when CAs rotate
+- New namespaces? Start copying again
+
+trust-manager solves this with *one*Bundle*definition* that keeps every namespace in sync — automatically.
+
+
+* What is trust-manager?
+
+An operand managed by the cert-manager Operator (available from *v1.19.0* as Technology Preview).
+
+  Define once ─────► Distribute everywhere ─────► Auto-update on rotation
+
+- Combine CA certificates from multiple sources into a single trust bundle
+- Distribute as ConfigMaps *or* Secrets to namespaces matching a label selector
+- Automatically update targets when source certificates change
+- Use OpenShift's own trusted CA bundle as a source — no manual provisioning
+
+
+* Getting Started
+
+* Prerequisites
+
+1. cert-manager Operator for Red Hat OpenShift is installed
+2. Cluster has a TechPreview-compatible FeatureSet enabled
+
+.code trust-manager-examples/enable-feature-gate.sh /START FEATUREGATE OMIT/,/END FEATUREGATE OMIT/
+
+*Note:* On MicroShift only Step 2 (operator feature gate) is needed.
+
+
+* Install trust-manager
+
+Create the TrustManager custom resource:
+
+.code trust-manager-examples/trustmanager-cr-minimal.yaml
+
+  $ oc create -f trustmanager-cr-minimal.yaml
+
+The CR *must* be named `cluster` (only one instance per cluster).
+
+
+* Verify Installation
+
+.code trust-manager-examples/verify-install.sh /START VERIFY OMIT/,/END VERIFY OMIT/
+
+
+* Distributing Trust Bundles
+
+* Step 1: Label Target Namespaces
+
+.code trust-manager-examples/label-namespace.sh /START LABEL OMIT/,/END LABEL OMIT/
+
+trust-manager creates targets only in namespaces that match the Bundle's label selector.
+
+
+* Step 2: Create a Bundle
+
+A Bundle using the cluster's default CA package:
+
+.code trust-manager-examples/bundle-default-ca.yaml
+
+  $ oc create -f bundle.yaml
+
+This creates a ConfigMap named `cluster-trust-bundle` in every labeled namespace.
+
+*Requires* `defaultCAPackage.policy: Enabled` in the TrustManager CR.
+
+
+* Step 3: Verify
+
+.code trust-manager-examples/verify-bundle.sh /START BUNDLESTATUS OMIT/,/END BUNDLESTATUS OMIT/
+
+
+* Multi-Source Bundles
+
+Combine certificates from multiple places:
+
+.code trust-manager-examples/bundle-multi-source.yaml
+
+
+* Configuration Options
+
+* Key TrustManager Settings
+
+.code trust-manager-examples/trustmanager-cr-full.yaml
+
+All fields except `trustNamespace` can be updated after creation.
+
+
+* Trust Namespace
+
+The `trustNamespace` is where trust-manager reads source ConfigMaps and Secrets from.
+
+  trustManagerConfig:
+    trustNamespace: "cert-manager"    # default
+
+- Defaults to `cert-manager` if not specified
+- The namespace *must exist* before creating the TrustManager CR
+- *Immutable* once set — cannot be changed after creation
+
+*Why*a*separate*namespace?* You may want to store CA sources in a dedicated namespace (e.g. `trust-sources`) rather than in the operand namespace, for organizational or access-control reasons.
+
+  # Example: using a custom trust namespace
+  trustManagerConfig:
+    trustNamespace: "trust-sources"
+
+
+* Writing Bundles to Secrets
+
+By default trust-manager writes only to ConfigMaps. To also target Secrets:
+
+  secretTargets:
+    policy: "Custom"
+    authorizedSecrets:
+      - "my-trust-bundle"
+
+Then in your Bundle CR, add a secret target:
+
+.code trust-manager-examples/bundle-secret-target.yaml
+
+The Bundle name (`my-trust-bundle`) must match one of the `authorizedSecrets` entries. trust-manager can only write to the *specific secret names* you authorize.
+
+
+* Default CA Package
+
+When `defaultCAPackage.policy: Enabled`:
+
+- The operator reads the cluster's trusted CA bundle (injected by the Cluster Network Operator)
+- Formats it into trust-manager's package format
+- Mounts it into the trust-manager pod
+
+This enables `useDefaultCAs: true` in your Bundle CRs — *no manual CA provisioning needed*.
+
+When CAs rotate, the operator detects the change and triggers a rolling restart automatically.
+
+
+* Filtering Expired Certificates
+
+By default, expired certificates are included in trust bundles. Enable filtering to remove them:
+
+  trustManagerConfig:
+    filterExpiredCertificates: "Enabled"
+
+*Why*enable*this?*
+
+- Keeps trust stores clean — workloads never receive stale CAs
+- Reduces bundle size over time as old certificates expire
+- Avoids confusion during debugging ("is this cert still valid?")
+
+
+* Cleanup
+
+* Uninstalling trust-manager
+
+Deleting the TrustManager CR stops the operator from reconciling, but does *not* remove the deployment. Full cleanup:
+
+.code trust-manager-examples/uninstall.sh /START UNINSTALL OMIT/,/END UNINSTALL OMIT/
+
+
+* Summary
+
+  ┌───────────────────────────────────────────────────┐
+  │  ✓  Define trust bundles once, distribute         │
+  │     cluster-wide automatically                    │
+  │                                                   │
+  │  ✓  Multiple sources: ConfigMaps, Secrets,        │
+  │     inline certs, default CAs                     │
+  │                                                   │
+  │  ✓  Targets stay in sync when CAs rotate          │
+  │                                                   │
+  │  ✓  OpenShift-native default CA integration       │
+  │                                                   │
+  │  ✓  Least-privilege: opt-in Secret write access   │
+  │                                                   │
+  │  ✓  Namespace targeting via label selectors       │
+  └───────────────────────────────────────────────────┘
+
+
+* Resources
+
+- Product Docs: [[https://docs.redhat.com/en/documentation/openshift_container_platform/4.21/html/security_and_compliance/cert-manager-operator-for-red-hat-openshift#cert-manager-trust-manager]]
+- Upstream trust-manager: [[https://cert-manager.io/docs/trust/trust-manager/]]
+- JIRA: [[https://issues.redhat.com/browse/CM-861]]
+
+
+* Questions?
+
+Thank you!
+
+.image https://raw.githubusercontent.com/openshift/console/master/frontend/public/imgs/logos/openshift.svg 150 _
